@@ -1,0 +1,443 @@
+---
+title: "Impact of severe weather events on public health and the economy in the US"
+author: "Javier Chang"
+date: "12/7/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## I Synopsis
+
+Storms and other severe weather events cause both public health and economic problems for communities and municipalities. The objective of this project was to determine which type of severe weather events are causing the most damage.
+
+The  main findings of this project were: 
+
+1. The greatest harm to human health in terms of fatalities and injuries from 1996 to 2011 in the US were caused by (1) Tornados, (2) Excessive heat and (3) Floods. These events caused the 56.8% of the harm.
+
+2. The greatest economic consequences in terms of property and crop damage from 1996 to 2011 in the US were caused by (1) Hurricanes/Typhoons/Storm tides (2) Floods and (3) Tornados. These events caused the 67.7% of the damage in economic value.
+
+3. Tornados and Floods occur much more frequently than Excessive heat and Hurricanes, but all cause considerable damage to public health and the economy.
+
+## II Data Procesing
+
+### II.1 Load required libraries
+
+```{r data_processing}
+## STEP 0 LOAD LIBRARIES
+## ---------------------
+if (!require("stringdist")) {
+      install.packages("stringdist", dependencies = TRUE)
+      library(stringdist)
+}
+if (!require("dplyr")) {
+      install.packages("dplyr", dependencies = TRUE)
+      library(dplyr)
+} 
+if (!require("reshape2")) {
+   install.packages("reshape2", dependencies = TRUE)
+   library(reshape2)
+} 
+if (!require("ggplot2")) {
+   install.packages("ggplot2", dependencies = TRUE)
+   library(ggplot2)
+}
+if (!require("kableExtra")) {
+   install.packages("kableExtra", dependencies = TRUE)
+   library(kableExtra)
+}
+```
+
+### II.2 Download raw data
+
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.  The file is downloaded from the course web site:
+
+[Storm data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2)
+
+```{r download_data, cache=TRUE}
+dfile <- "repdata_data_StormData.csv"
+if (!file.exists(dfile)) {
+      download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2",
+                    destfile = dfile)
+}
+if (!exists('stormdata'))
+      stormdata <- read.csv(dfile, 
+                            header = TRUE)
+```
+
+There is also some documentation of the database available. Here is described how some of the variables are constructed/defined.
+
+* National Weather Service [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+
+* National Climatic Data Center Storm Events [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+The raw data has **`r ncol(stormdata)`** variables and **`r nrow(stormdata)`** observations. The structure of the raw data is as follows:
+
+```{r data_structure}
+str(stormdata)
+```
+
+### II.3 Select only relevant variables and observations
+
+According to NOAA the data recording start from Jan. 1950. At that time they recorded one event type, tornado. They add more events gradually and only from Jan. 1996 they start recording all events type. Since our objective is comparing the effects of different weather events the analysis is going to consider only data from 1996 to 2011.
+
+As the analysis is going to be carried out on the impact on public health and the economy, the relevant variables are the following:
+
+* BGN_DATE: begin date of the weather event
+* STATE: US state where the weather event started
+* EVTYPE: severe weather event type
+* FATALITIES: number of fatalities caused by the event
+* INJURIES: number of people injured by the event
+* PROPDMG: property damage in economic value (USD)
+* PROPDMGEXP: exponent values for property damage (PROPDMG)
+* CROPDMG: crop damage in economic value (USD)
+* CROPDMGEXP: exponent values for crop damage (CROPDMG)
+
+```{r select_wrk_data, cache=TRUE}
+wrkstormdata <- stormdata %>%
+      mutate(DATE =as.Date(BGN_DATE, '%m/%d/%Y'), 
+             EVTYPE=toupper(trimws(EVTYPE))) %>%
+      filter(as.numeric(format(DATE,'%Y'))>=1996) %>%
+      select(DATE, STATE, EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+str(wrkstormdata)
+```
+
+Our data subset now has **`r ncol(wrkstormdata)`** variables and **`r nrow(wrkstormdata)`** observations.
+
+### II.4 Standardize the EVTYPE to the 48 official NOOA event types
+
+The official events types are 48 according to NOOA, however the EVTYPE variable has near one thousand event types and most of them are due by typo errors. This step uses the 'amatch' function from 'stringdist' package for 'Approximate String Matching' setting the 'maxDist' value to **7** to get good accuracy.
+
+```{r standarize_EVTYPE, cache=TRUE}
+## Master of 48 Official Event Types
+EventTypesMaster <- toupper(c(
+      "Astronomical Low Tide",
+      "Avalanche",
+      "Blizzard",
+      "Coastal Flood",
+      "Cold/Wind Chill",
+      "Debris Flow",
+      "Dense Fog",
+      "Dense Smoke",
+      "Drought",
+      "Dust Devil",
+      "Dust Storm",
+      "Excessive Heat",
+      "Extreme Cold/Wind Chill",
+      "Flash Flood",
+      "Flood",
+      "Freezing Fog",
+      "Frost/Freeze",
+      "Funnel Cloud",
+      "Hail",
+      "Heat",
+      "Heavy Rain",
+      "Heavy Snow",
+      "High Surf",
+      "High Wind",
+      "Hurricane/Typhoon",
+      "Ice Storm",
+      "Lakeshore Flood",
+      "Lake-Effect Snow",
+      "Lightning",
+      "Marine Hail",
+      "Marine High Wind",
+      "Marine Strong Wind",
+      "Marine Thunderstorm Wind",
+      "Rip Current",
+      "Seiche",
+      "Sleet",
+      "Storm Tide",
+      "Strong Wind",
+      "Thunderstorm Wind",
+      "Tornado",
+      "Tropical Depression",
+      "Tropical Storm",
+      "Tsunami",
+      "Volcanic Ash",
+      "Waterspout",
+      "Wildfire",
+      "Winter Storm",
+      "Winter Weather"
+))
+
+## Match with official event types
+EventTypesRAWData <- wrkstormdata %>%
+   group_by(EVTYPE) %>%
+   summarise(CNT = n())
+EventTypesRAWData <- cbind(EventTypesRAWData, NEWEVTYPE=EventTypesMaster[amatch(EventTypesRAWData$EVTYPE, EventTypesMaster, maxDist=7)])
+
+matchrate <- sum(EventTypesRAWData$CNT[is.na(EventTypesRAWData$NEWEVTYPE)])/sum(EventTypesRAWData$CNT)
+```
+
+After the automatic match process there are still **`r format(matchrate*100, nsmall=1, digits=1)`%** event types that are not matched to the official event types. So the process continues on a case-by-case basis.
+
+```{r evtypes_manual, cache=TRUE}
+## Correccion caso a caso
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "FLD|MINOR FLOODING|RIVER FLOODING|SNOWMELT FLOODING|STREET FLOODING|TIDAL FLOODING|URBAN FLOODING|URBAN/STREET FLOODING", EventTypesRAWData$EVTYPE)] <- "FLOOD"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "COASTAL FLOODING|COASTAL  FLOODING|CSTL FLOODING|CSTL FLOOD", EventTypesRAWData$EVTYPE)] <- "COASTAL FLOOD"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "FIRE", EventTypesRAWData$EVTYPE)] <- "WILDFIRE"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "HURRICANE|TYPHOON", EventTypesRAWData$EVTYPE)] <- "HURRICANE/TYPHOON"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "FREEZING RAIN", EventTypesRAWData$EVTYPE)] <- "SLEET"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "HOT|WARM|EXCESSIVE HEAT|HIGH TEMP|MONTHLY TEMPERATURE|RECORD TEMPERATURE|RECORD TEMPERATURES|TEMPERATURE RECORD", EventTypesRAWData$EVTYPE)] <- "EXCESSIVE HEAT"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "COLD|UNSEASONABLY COOL|CHILL TEMPERATURES", EventTypesRAWData$EVTYPE)] <- "COLD/WIND CHILL"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "EXTREME COLD|EXTENDED COLD|EXCESSIVE COLD|EXTREME WINDCHILL", EventTypesRAWData$EVTYPE)] <- "EXTREME COLD/WIND CHILL"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "SNOWFALL|LIGHT SNOW", EventTypesRAWData$EVTYPE)] <- "HEAVY SNOW"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "MUDSLIDE|LANDSLIDE|LANDSLIDES", EventTypesRAWData$EVTYPE)] <- "DEBRIS FLOW"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "HIGH SURF|HIGH WATER|HEAVY SURF", EventTypesRAWData$EVTYPE)] <- "HIGH SURF"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "MICROBURST|MICOBURST", EventTypesRAWData$EVTYPE)] <- "STRONG WIND"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "SNOW A|SNOW S|EXCESSIVE SNOW", EventTypesRAWData$EVTYPE)] <- "HEAVY SNOW"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "FREEZE|FROST|BLACK ICE", EventTypesRAWData$EVTYPE)] <- "FROST/FREEZE"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "PRECIP|HVY RAIN|HEAVY RAIN|MONTHLY RAINFALL|PROLONGED RAIN|RAIN (HEAVY)|RAIN DAMAGE|RECORD RAINFALL|TORRENTIAL RAINFALL", EventTypesRAWData$EVTYPE)] <- "HEAVY RAIN"
+EventTypesRAWData$NEWEVTYPE[grep(pattern = "SEVERE THUNDERSTORM", EventTypesRAWData$EVTYPE)] <- "WINTER STORM"
+EventTypesRAWData$NEWEVTYPE[startsWith(EventTypesRAWData$EVTYPE, "TSTM WIND")] <- "THUNDERSTORM WIND"
+EventTypesRAWData$NEWEVTYPE[startsWith(EventTypesRAWData$EVTYPE, "MARINE TSTM WIND")] <- "MARINE THUNDERSTORM WIND"
+EventTypesRAWData$NEWEVTYPE[startsWith(EventTypesRAWData$EVTYPE, "EXTREME COLD")] <- "EXTREME COLD/WIND CHILL"
+EventTypesRAWData$NEWEVTYPE[startsWith(EventTypesRAWData$EVTYPE, "WIND")] <- "STRONG WIND"
+EventTypesRAWData$NEWEVTYPE[startsWith(EventTypesRAWData$EVTYPE, "WIND CHILL")] <- "COLD/WIND CHILL"
+EventTypesRAWData$NEWEVTYPE[EventTypesRAWData$EVTYPE=="SNOW"] <- "HEAVY SNOW"
+EventTypesRAWData$NEWEVTYPE[EventTypesRAWData$EVTYPE=="FOG"] <- "DENSE FOG"
+EventTypesRAWData$NEWEVTYPE[EventTypesRAWData$EVTYPE=="THUNDERSTORM"] <- "WINTER STORM"
+
+## Calculate final match rate
+matchrate <- sum(EventTypesRAWData$CNT[is.na(EventTypesRAWData$NEWEVTYPE)])/sum(EventTypesRAWData$CNT)
+
+## Asign 'OTHER' value to unmatched event types
+levels(EventTypesRAWData$NEWEVTYPE) <- c(levels(EventTypesRAWData$NEWEVTYPE), "OTHER")
+EventTypesRAWData$NEWEVTYPE[is.na(EventTypesRAWData$NEWEVTYPE)] <- "OTHER"
+
+# Finally standardize event types
+wrkstormdata <- left_join(wrkstormdata, EventTypesRAWData, by="EVTYPE") %>%
+   select(DATE, STATE, EVTYPE=NEWEVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP) %>%
+   mutate(YEAR=as.numeric(format(DATE,'%Y')), 
+          MONTH=as.numeric(format(DATE,'%m')))
+```
+
+The final unmatch rate for event types is **`r format(matchrate*100, nsmall=1, digits=1)`%**, which good enough for the purpose of the present analysis.
+
+### II.5 Remove outliers
+
+To identify possible outliers a boxplot graph is created to show economic damage in logarithmic scale by event type.
+
+```{r outliers, cache=TRUE}
+# Calculate total damage in USD
+## Damage calculator
+damagecalc <- function(dmg=0, expo="0"){
+   value <-0
+   expo <- toupper(expo)
+   if (expo=="H"){
+      value <- dmg * 100
+   } else if (expo=="K"){
+      value <- dmg * 1000
+   } else if (expo=="M"){
+      value <- dmg * 1000000
+   } else if (expo=="B"){
+      value <- dmg * 1000000000
+   } else if (!grepl("\\D", expo)){
+      value <- dmg * (10^as.numeric(expo))
+   } else {
+      value <- 0
+   }
+   return(value)
+}
+wrkstormdata$TOTPROPDMG <- mapply(damagecalc, wrkstormdata$PROPDMG, wrkstormdata$PROPDMGEXP)
+wrkstormdata$TOTCROPDMG <- mapply(damagecalc, wrkstormdata$CROPDMG, wrkstormdata$CROPDMGEXP)
+
+## Calculate economic damage by event type
+economicdamage <- wrkstormdata %>%
+   group_by(EVTYPE) %>%
+   summarise(TOTPROPDMG=sum(TOTPROPDMG, na.rm=TRUE),
+             TOTCROPDMG=sum(TOTCROPDMG, na.rm=TRUE),
+             TOTDMG=TOTPROPDMG+TOTCROPDMG,
+             CNT=n()) %>%
+   mutate(TOTPROPDMG=round(TOTPROPDMG/1000000, digits=1),
+          TOTCROPDMG=round(TOTCROPDMG/1000000, digits=1),
+          TOTDMG=round(TOTDMG/1000000, digits=1),
+          FREQ=round(100*TOTDMG/sum(TOTDMG),
+                     digits=1)) %>%
+   arrange(desc(TOTDMG))
+
+## Plot boxplot of total damage
+ggplot(wrkstormdata[wrkstormdata$EVTYPE %in% economicdamage$EVTYPE[1:10],], 
+       aes(x=EVTYPE, y=TOTPROPDMG+TOTCROPDMG)) +
+   scale_y_log10() +
+   geom_boxplot() +
+   coord_flip() +
+   ggtitle("BOXPLOT OF TOTAL DAMAGE BY EVENT TYPE") +
+   labs(caption="Figure 1. Boxplot of total damage by event type")
+```
+
+As we can see there is an outlier in the FLOOD the event type which cost more than USD 100 billions. It was a major flooding continued into the early hours of January 1st which as shown in the remarks of the observation.
+
+```{r identify outlier, cache=TRUE}
+print( stormdata %>%
+   filter(PROPDMG>=100 & PROPDMGEXP=="B") %>%
+   select(EVTYPE, BGN_DATE, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP, REMARKS))
+```
+
+This observation will not be considered in the analysis as it is found to be erroneous, because the observation states that there was USD 115 billion in property damage but the remarks says that there wer around USD 76 million.
+
+```{r remove_outlier, cache=TRUE}
+wrkstormdata <- wrkstormdata %>%
+   filter(!(PROPDMG>=100 & PROPDMGEXP=="B"))
+```
+
+Now the the data subset has only **`r nrow(wrkstormdata)`** observations.
+
+## III. Results
+
+### III.1 Types of events that are most harmful to population health
+
+To analyze the impact of the severe weather events on public health there are two relevant variables:
+
+* FATALITIES: number of fatalities
+* INJURIES: number of injured persons
+
+The impact on public health is the sum of the number of fatalities (FATALITIES) and the number of injured persons (INJURIES), which is calculated by event type and shown in the Table Section (table IV.1).
+
+```{r healthdamage, cache=TRUE}
+healthdamage <- wrkstormdata %>%
+   group_by(EVTYPE) %>%
+   summarise(TOTFATALITIES=sum(FATALITIES),
+             TOTINJURIES=sum(INJURIES),
+             TOTHEALTHDMG=TOTFATALITIES+TOTINJURIES,
+             CNT=n()) %>%
+   mutate(FREQ=round(100*TOTHEALTHDMG/sum(TOTHEALTHDMG), digits=1)) %>%
+   arrange(desc(TOTHEALTHDMG))
+```
+
+<br />From that table it can be observed the top 10 severe weather event types which caused the major number of affected people since 1996 in the US are shown in the next figure. 
+
+```{r tophealthdamage, cache=TRUE}
+tophealthdamage <- healthdamage[1:10,1:3]
+colnames(tophealthdamage) <- c("EVENT_TYPE", "FATALITIES", "INJURIES")
+tophealthdamage <- melt(tophealthdamage, id.vars="EVENT_TYPE")
+
+perctophealthdmg <- sum(healthdamage$TOTHEALTHDMG[1:3]) / sum(healthdamage$TOTHEALTHDMG)
+
+ggplot(tophealthdamage, aes(fill=variable, x=reorder(EVENT_TYPE, value), y=value))+
+   geom_bar(stat="identity") +
+   coord_flip() +
+   ggtitle("MOST HARMFUL EVENTS TO POPULATION HEALTH\nBY EVENT TYPE") +
+   xlab("EVENT TYPE")+
+   ylab("TOTAL NUMBER OF FATALITIES AND INJURIES")+
+   labs(caption="Figure 2. Number of fatalities and injuries by event type")
+```
+
+In conclusion, the greatest harm to human health since 1996 to 2011 in the US was caused by the following types of severe weather events:
+
+1. Tornado
+2. Excessive heat
+3. Flood
+
+Those three types of events has caused the **`r format(perctophealthdmg*100, nsmall=1, digits=1)`%** of the total number of affected people.
+
+### III.2 Types of events that caused the greatest economic consequences
+
+To analyze the impact of the severe weather events which had the greatest economic consequences there are four relevant variables:
+
+* PROPDMG: property damage in economic value (USD)
+* PROPDMGEXP: exponent values for property damage (PROPDMG)
+* CROPDMG: crop damage in economic value (USD)
+* CROPDMGEXP: exponent values for crop damage (CROPDMG)
+
+The 'CROPDMGEXP' is the exponent values for 'CROPDMG' (crop damage). In the same way, 'PROPDMGEXP' is the exponent values for 'PROPDMG' (property damage). You should use both to get the total values for crops and property damage. (B or b = Billion, M or m = Million, K or k = Thousand, H or h = Hundred). The number from one to ten represent the power of ten (10^The number).
+
+The impact on the economy is the sum of the property damage (PROPDMG) and the crop damage (CROPDMG), both adjusted by their exponencial values.
+
+The total damage in economic value by event type is shown in the Table section (table IV.2).
+
+```{r new economic damage, cache=TRUE}
+## Calculate economic damage by event type
+economicdamage <- wrkstormdata %>%
+   group_by(EVTYPE) %>%
+   summarise(TOTPROPDMG=sum(TOTPROPDMG, na.rm=TRUE),
+             TOTCROPDMG=sum(TOTCROPDMG, na.rm=TRUE),
+             TOTDMG=TOTPROPDMG+TOTCROPDMG,
+             CNT=n()) %>%
+   mutate(TOTPROPDMG=round(TOTPROPDMG/1000000, digits=1),
+          TOTCROPDMG=round(TOTCROPDMG/1000000, digits=1),
+          TOTDMG=round(TOTDMG/1000000, digits=1),
+          FREQ=round(100*TOTDMG/sum(TOTDMG),
+                     digits=1)) %>%
+   arrange(desc(TOTDMG))
+```
+
+
+<br />From that table it can be seen that the top 10 severe weather event types which had the major economic consequences from 1996 to 2011 in the US are the following. 
+
+```{r topeconomicdamage}
+topeconomicdamage <- economicdamage[1:10, 1:3]
+colnames(topeconomicdamage) <- c("EVENT_TYPE", "PROPERTY_DAMAGE", "CROP_DAMAGE")
+topeconomicdamage <- melt(topeconomicdamage, id.vars="EVENT_TYPE")
+
+perctopeconomicdmg <- sum(economicdamage$TOTDMG[1:4]) / sum(economicdamage$TOTDMG)
+
+ggplot(topeconomicdamage, aes(fill=variable, x=reorder(EVENT_TYPE, value), y=value/1000))+
+   geom_bar(stat="identity") +
+   coord_flip() +
+   ggtitle("GREATEST ECONOMIC CONSEQUENCES\nBY EVENT TYPE") +
+   xlab("EVENT TYPE")+
+   ylab("TOTAL DAMAGE (USD BILLIONS)") +
+   labs(caption="Figure 3. Total damage (property+crop) by event type")
+
+```
+
+It should be noted that two exceptional events occurred in 2005:
+
+* Hurricane Katrina, August 2005
+* Hurricane Wilma, October 2005
+
+The first event also caused a storm surge/tide whose damage is considered in the STORM TIDE event type. 
+
+```{r}
+t <- wrkstormdata %>%
+   filter(PROPDMG>=10 & PROPDMGEXP=="B") %>%
+   select(EVTYPE, DATE, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+
+knitr::kable(t[,1:6], format="html") %>%
+   kable_styling(font_size = 8, full_width=TRUE)
+```
+
+In conclusion, the following types of events had the greatest economic consequences from 1996 to 2011 in the US:
+
+1. Hurricane/Typhoon & Storm tide
+2. Flood
+3. Tornado
+
+Those three types of events represents the **`r format(perctopeconomicdmg*100, nsmall=1, digits=1)`%** of the total economic damage.
+
+Furthermore, it is important to mention that table IV.2 shows that hurricanes have a fairly low frequency of occurrence, but when they do occur they are very destructive. While floods and tornadoes are much more frequent than hurricanes, but they also have significant destructive power.
+
+## IV Tables
+
+### IV.1 Damage on public health by event type
+
+The following table describes the damage on public health by event type ocurred from 1996 to 2011, ordered by the total number of injuries and fatalities.
+
+```{r table1}
+knitr::kable(healthdamage, 
+             format="html", 
+             caption="Table IV.1 Damage on public health by event type",
+             col.names = c("Event type", "Fatalities", "Injuries", "Total", "Count", "%"),
+             format.args = list(decimal.mark = ".", big.mark = ",")) %>%
+   kable_styling(font_size = 8, full_width=TRUE)
+```
+
+### IV.2 Economic consequences by event type
+
+The following table describes the economic consequences by event type ocurred from 1996 to 2011, ordered by the total damage.
+
+```{r table2}
+## print table
+knitr::kable(economicdamage,
+             format="html",
+             caption="Table IV.2 Economic consequenses by event type in USD millions", 
+             col.names = c("Event type", "Property dmg", "Crop dmg", "Total dmg", "Count", "%"),
+             format.args = list(decimal.mark = ".", big.mark = ",")) %>%
+kable_styling(font_size = 8, full_width=TRUE)
+```
